@@ -6,46 +6,12 @@
 #include <errno.h> // Pour errno et les codes d'erreur
 #include <sys/time.h>
 
-#define SIZE 1024
-
 #define RRQ 1
 #define MAX_PACKET_SIZE 516
 #define MAX_SIZE_DATA 512
 #define MAX_SIZE_FILE 506
 #define SERVER_PORT 69
 #define SERVER_IP "127.0.0.1"
-
-typedef struct
-{
-  char opcode[2];               // Code de l'opération
-  char filename[MAX_SIZE_FILE]; // Nom du fichier
-  char zero[1];
-  char mode[6]; // Le mode
-  char zero2[1];
-} packet_rq;
-
-// Fonction qui convertie structrq vers char*
-
-void packet_rq_to_buffer(packet_rq *rq, char *buffer)
-{
-  int pos = 0; // Position actuelle dans le buffer
-
-  // Copie de l'opcode
-  memcpy(buffer + pos, rq->opcode, sizeof(rq->opcode));
-  pos += sizeof(rq->opcode);
-
-  // Copie du filename
-  memcpy(buffer + pos, rq->filename, strlen(rq->filename) + 1); // +1 pour inclure le caractère zéro
-  pos += strlen(rq->filename) + 1;
-
-  // Aucun besoin de copier explicitement le zero; il est déjà inclus à la fin de filename
-
-  // Copie du mode
-  memcpy(buffer + pos, rq->mode, strlen(rq->mode) + 1); // +1 pour inclure le caractère zéro
-  pos += strlen(rq->mode) + 1;
-
-  // Aucun besoin de copier explicitement le zero2; il est déjà inclus à la fin de mode
-}
 
 // Fonction de lecture du fichier RRQ
 
@@ -74,18 +40,6 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
     perror("Erreur : Nom de fichier trop long");
     exit(EXIT_FAILURE);
   }
-  /*  Version 1 avec structure
-  packet_rq rrq;
-  rrq.opcode[0] = 0;
-  rrq.opcode[1] = RRQ;
-  strcpy(rrq.filename, filename);
-  rrq.zero[0] = 0;
-  strcpy(rrq.mode, "octet");
-  rrq.zero2[0] = 0;
-
-  // Conversion de la structure RRQ en chaîne de caractères
-  packet_rq_to_buffer(&rrq, buffer);
-  */
 
   /* Version plus performant*/
   buffer[0] = 0;
@@ -96,7 +50,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   buffer[3 + size_filename + 5] = 0;
 
   // Envoi du RRQ au serveur
-  sendto(sockfd, buffer, offset, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
+  sendto(sockfd, buffer, MAX_PACKET_SIZE, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
 
   // Definition des paramettre du time out
   tv.tv_sec = 5;  // Timeout de 5 secondes
@@ -192,18 +146,17 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       if (len < MAX_PACKET_SIZE)
       {
         printf("Transmission terminée.\n");
+        // On ferme le fichier
+        fclose(fptr);
         break;
       }
     }
     else if (buffer[1] == 5) // Opcode 5 indique un paquet d'erreur
     {
-      printf("Erreur reçue du serveur: %s\n", buffer + 4);
+      fprintf(stderr, "Erreur reçue du serveur: %s\n", buffer + 4);
       break;
     }
   }
-
-  // Fermeture du socket
-  close(sockfd);
 
   // Fermeture du socket
   close(sockfd);
@@ -220,10 +173,15 @@ int main(void)
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(SERVER_PORT);
   server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-  char filename[MAX_SIZE_FILE];
-  scanf("%s", filename);
+
+
   // Envoyé en RRQ le nom du fichier pour lire le fichier
-  lire_fichier_rrq(filename, server_addr);
+  while (1)
+  {
+    char filename[MAX_SIZE_FILE];
+    scanf("%s", filename);
+    lire_fichier_rrq(filename, server_addr);
+  }
 
   return 0;
 }
