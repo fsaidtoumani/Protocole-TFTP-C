@@ -248,6 +248,7 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
       block_actuel++;
 
     memset(data+4, 0, 512);
+    printf("put commit ");
 
   }
   
