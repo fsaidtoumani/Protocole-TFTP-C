@@ -7,6 +7,7 @@
 #include <sys/time.h>
 
 #define RRQ 1
+#define WRQ 2
 #define MAX_PACKET_SIZE 516
 #define MAX_SIZE_DATA 512
 #define MAX_SIZE_FILE 506
@@ -160,6 +161,101 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
 
   // Fermeture du socket
   close(sockfd);
+}
+void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
+  int sockfd;
+  char buffer[MAX_PACKET_SIZE];
+  int len, n,block_actuel=1;
+
+  struct timeval tv;
+  FILE *fptr;
+  // Création du socket UDP
+  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0)
+  {
+    perror("Erreur de création du socket");
+    exit(EXIT_FAILURE);
+  }
+  size_t size_filename = strlen(filename);
+  int offset = 4 + size_filename + 1 + 5; // 2 octets pour l'opcode, 2 octet pour les 0 apres le filname et final, 5 octets pour le mode
+
+  if (offset > MAX_PACKET_SIZE)
+  {
+    perror("Erreur : Nom de fichier trop long");
+    exit(EXIT_FAILURE);
+  }
+  buffer[0] = 0;
+  buffer[1] = WRQ;
+  strcpy(buffer + 2, filename);
+  buffer[2 + size_filename] = 0;
+  strcpy(buffer + 3 + size_filename, "octet");
+  buffer[3 + size_filename + 5] = 0;
+
+  // Envoi du RRQ au serveur
+  n = sendto(sockfd, buffer, offset, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
+
+  tv.tv_sec = 5;  // Timeout de 5 secondes
+  tv.tv_usec = 0; // 0 microsecondes
+   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
+  {
+    perror("Erreur lors de la définition du timeout");
+    exit(EXIT_FAILURE);
+  }
+  char data[516];
+  char ack[4];
+  fptr = fopen(filename,"r");
+  
+  int flag=0;
+  while (1)
+  {
+
+    struct sockaddr_in from_addr;
+    socklen_t from_len = sizeof(from_addr);
+    n=recvfrom(sockfd, ack, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+        printf("ack1 %d ,ack2 %d ack3 %d ack4 %d\n",ack[0],ack[1],ack[2],ack[3]);
+    if(n==0 || ack[1]!=4){
+      perror("Errorrrr ");
+      exit(1);
+    }
+    if(flag){
+      fclose(fptr);
+      break;
+    }
+    size_t bytesRead = fread(data+4,1,512,fptr);
+    if (bytesRead == 0) {
+        perror("Erreur lors de la lecture du fichier");
+        // fclose(fptr);
+        // flag=1;
+        //exit(1);
+    }
+    if(feof(fptr)){
+      flag=1;
+    }
+
+    data[0] = 0;
+    data[1] = 3;
+    if(block_actuel==9){
+      block_actuel=0;
+      data[2]++;
+    }else{
+      data[2]=0;
+    }
+    data[3] = block_actuel;
+    printf("****************************data[0 ]= %d data[1]= %d data[2] = %d data[3]=%d\n",data[0],data[1],data[2],data[3]);
+    printf("darta = %s\n",data+4);
+    n = sendto(sockfd, data, 4+bytesRead, 0, (const struct sockaddr *)&from_addr, from_len);
+
+      block_actuel++;
+
+    memset(data+4, 0, 512);
+
+  }
+  
+  if(fptr==NULL){
+    perror("FILE NOT FOUND");
+    return;
+  }
+
 }
 
 int main(void)
