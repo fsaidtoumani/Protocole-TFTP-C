@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 #include <errno.h> // Pour errno et les codes d'erreur
 #include <sys/time.h>
-
 #define RRQ 1
 #define WRQ 2
 #define MAX_PACKET_SIZE 516
@@ -146,7 +145,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       // Si la taille des données est inférieure à 512, c'est le dernier paquet
       if (len < MAX_PACKET_SIZE)
       {
-        printf("Transmission terminée.\n");
+        printf("Transmission terminée.\n\n");
         // On ferme le fichier
         fclose(fptr);
         break;
@@ -158,14 +157,13 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       break;
     }
   }
-
   // Fermeture du socket
   close(sockfd);
 }
 void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   int sockfd;
   char buffer[MAX_PACKET_SIZE];
-  int len, n,block_actuel=1;
+  int n,block_actuel=1;
 
   struct timeval tv;
   FILE *fptr;
@@ -191,9 +189,9 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   strcpy(buffer + 3 + size_filename, "octet");
   buffer[3 + size_filename + 5] = 0;
 
-  // Envoi du RRQ au serveur
+  // Envoi du WRQ au serveur
   n = sendto(sockfd, buffer, offset, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
-
+  printf("Envoi du WRQ au serveur : %d octets\n", n);
   tv.tv_sec = 5;  // Timeout de 5 secondes
   tv.tv_usec = 0; // 0 microsecondes
    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
@@ -202,21 +200,22 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
     exit(EXIT_FAILURE);
   }
   char data[516];
-  char ack[4];
-  fptr = fopen(filename,"r");
-  
+
+  fptr = fopen(filename,"rb");
+  memset(buffer, 0, MAX_PACKET_SIZE);
   int flag=0;
   while (1)
   {
-
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
-    n=recvfrom(sockfd, ack, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-        printf("ack1 %d ,ack2 %d ack3 %d ack4 %d\n",ack[0],ack[1],ack[2],ack[3]);
-    if(n==0 || ack[1]!=4){
-      perror("Errorrrr ");
-      exit(1);
+    //Reception des paquet;
+    n=recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+    printf("Réception du paquet numero : %d \n", buffer[3]);
+    if (buffer[1]==5){
+      printf("%s\n",buffer+4);
+      break;
     }
+
     if(flag){
       fclose(fptr);
       break;
@@ -224,39 +223,26 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
     size_t bytesRead = fread(data+4,1,512,fptr);
     if (bytesRead == 0) {
         perror("Erreur lors de la lecture du fichier");
-        // fclose(fptr);
-        // flag=1;
-        //exit(1);
     }
     if(feof(fptr)){
       flag=1;
     }
-
     data[0] = 0;
     data[1] = 3;
-    if(block_actuel==9){
-      block_actuel=0;
-      data[2]++;
-    }else{
-      data[2]=0;
-    }
+    data[2]=0;
     data[3] = block_actuel;
-    printf("****************************data[0 ]= %d data[1]= %d data[2] = %d data[3]=%d\n",data[0],data[1],data[2],data[3]);
-    printf("darta = %s\n",data+4);
+
     n = sendto(sockfd, data, 4+bytesRead, 0, (const struct sockaddr *)&from_addr, from_len);
-
-      block_actuel++;
-
+    printf("Envoi du paquet numero : %d \n", data[3]);
+    if(n<MAX_PACKET_SIZE){
+      n=recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+      printf("Réception du paquet numero : %d \n", buffer[3]);
+      printf("FIN DE TRANSISSION\n\n");
+      break;
+    }
+    block_actuel++;
     memset(data+4, 0, 512);
-    printf("put commit ");
-
   }
-  
-  if(fptr==NULL){
-    perror("FILE NOT FOUND");
-    return;
-  }
-
 }
 
 int main(void)
@@ -264,21 +250,19 @@ int main(void)
 
   // Defining variables
   struct sockaddr_in server_addr;
-
+  char op[3];
   // Configuration de l'adresse du serveur
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(SERVER_PORT);
   server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-
-
   // Envoyé en RRQ le nom du fichier pour lire le fichier
   while (1)
   {
     char filename[MAX_SIZE_FILE];
     scanf("%s", filename);
-    lire_fichier_rrq(filename, server_addr);
+    // lire_fichier_rrq(filename, server_addr);
+    ecrire_fichier_wrq(filename, server_addr);
   }
-
   return 0;
 }
