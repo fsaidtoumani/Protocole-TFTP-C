@@ -44,9 +44,9 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   /* Version plus performant*/
   buffer[0] = 0;
   buffer[1] = RRQ;
-  strcpy((char*)buffer + 2, filename);
+  strcpy((char *)buffer + 2, filename);
   buffer[2 + size_filename] = 0;
-  strcpy((char*)buffer + 3 + size_filename, "octet");
+  strcpy((char *)buffer + 3 + size_filename, "octet");
   buffer[3 + size_filename + 5] = 0;
 
   // Envoi du RRQ au serveur
@@ -145,7 +145,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       // Si la taille des données est inférieure à 512, c'est le dernier paquet
       if (len < MAX_PACKET_SIZE)
       {
-        printf("Transmission terminée.\n\n");
+        printf("Transmission terminée.\n");
         // On ferme le fichier
         fclose(fptr);
         break;
@@ -160,13 +160,14 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   // Fermeture du socket
   close(sockfd);
 }
-void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
+void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr)
+{
   int sockfd;
   unsigned char buffer[MAX_PACKET_SIZE];
   unsigned char data[MAX_PACKET_SIZE];
   int n;
-  unsigned short block_actuel=1;
-  int flag=0;
+  unsigned short block_actuel = 1;
+  int flag = 0;
 
   struct timeval tv;
   FILE *fptr;
@@ -187,62 +188,67 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   }
   buffer[0] = 0;
   buffer[1] = WRQ;
-  strcpy((char*)buffer + 2, filename);
+  strcpy((char *)buffer + 2, filename);
   buffer[2 + size_filename] = 0;
-  strcpy((char*)buffer + 3 + size_filename, "octet");
+  strcpy((char *)buffer + 3 + size_filename, "octet");
   buffer[3 + size_filename + 5] = 0;
 
   // Envoi du WRQ au serveur
   n = sendto(sockfd, buffer, offset, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
-  printf("Envoi du WRQ au serveur : %d octets\n", n);
+  //printf("Envoi du WRQ au serveur : %d octets\n", n);
   tv.tv_sec = 5;  // Timeout de 5 secondes
   tv.tv_usec = 0; // 0 microsecondes
-   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
+  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
   {
     perror("Erreur lors de la définition du timeout");
     exit(EXIT_FAILURE);
   }
 
-  fptr = fopen(filename,"rb");
+  fptr = fopen(filename, "rb");
   memset(buffer, 0, MAX_PACKET_SIZE);
   while (1)
   {
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
-    //Reception des paquet;
-    n=recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-    printf("Réception du paquet numero : %d \n", buffer[3]);
-    if (buffer[1]==5){
-      printf("%s\n",buffer+4);
+    // Reception des paquet;
+    n = recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+    //printf("Réception du paquet numero : %d \n", buffer[3]);
+    if (buffer[1] == 5)
+    {
+      printf("Error code %d :%s\n",buffer[3] ,buffer + 4);
       break;
     }
 
-    if(flag){
+    if (flag)
+    {
       fclose(fptr);
       break;
     }
-    size_t bytesRead = fread(data+4,1,512,fptr);
-    if (bytesRead == 0) {
-        perror("Erreur lors de la lecture du fichier");
+    size_t bytesRead = fread(data + 4, 1, 512, fptr);
+    if (bytesRead == 0)
+    {
+      perror("Erreur lors de la lecture du fichier");
     }
-    if(feof(fptr)){
-      flag=1;
+    if (feof(fptr))
+    {
+      flag = 1;
     }
     data[0] = 0;
     data[1] = 3;
-    data[2]=0;
+    data[2] = block_actuel >> 8;
     data[3] = block_actuel;
 
-    n = sendto(sockfd, data, 4+bytesRead, 0, (const struct sockaddr *)&from_addr, from_len);
-    printf("Envoi du paquet numero : %d \n", data[3]);
-    if(n<MAX_PACKET_SIZE){
-      n=recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
-      printf("Réception du paquet numero : %d \n", buffer[3]);
-      printf("FIN DE TRANSISSION\n\n");
+    n = sendto(sockfd, data, 4 + bytesRead, 0, (const struct sockaddr *)&from_addr, from_len);
+    //printf("Envoi du paquet numero : %d \n", data[3]);
+    if (n < MAX_PACKET_SIZE)
+    {
+      n = recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+      //printf("Réception du paquet numero : %d \n", buffer[3]);
+      printf("Fin de transmission\n");
       break;
     }
     block_actuel++;
-    memset(data+4, 0, 512);
+    memset(data + 4, 0, 512);
   }
 }
 
@@ -250,14 +256,15 @@ int main(int argc, char *argv[])
 {
 
   // Defining variables
+  char sep = '\040';
   struct sockaddr_in server_addr;
   char *SERVER_IP;
-  if (argc< 2)
+  if (argc < 2)
   {
     printf("Usage: %s <IP address>\n", argv[0]);
     exit(1);
   }
-  SERVER_IP=argv[1];
+  SERVER_IP = argv[1];
   // Configuration de l'adresse du serveur
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
@@ -267,9 +274,48 @@ int main(int argc, char *argv[])
 
   while (1)
   {
+    printf("Farid/Fahardine | tftp > ");
     char filename[MAX_SIZE_FILE];
-    scanf("%s", filename);
-    ecrire_fichier_wrq(filename, server_addr);
+    char commande[10 + MAX_SIZE_FILE];
+    char *token;
+    fgets(commande, 10 + MAX_SIZE_FILE, stdin);
+    if (commande[3] != ' ')
+    {
+      printf("?Invalid command\n");
+      continue;
+    }
+    char opcod[4];
+    for (int i = 0; i < 3; i++)
+    {
+      opcod[i] = commande[i];
+    }
+    opcod[3] = '\0';
+
+    int i = 3;
+    while (commande[i] == ' ')
+      i++;
+
+    strcpy(filename, commande + i);
+    i = 0;
+    while (filename[i] != '\n')
+    {
+      i++;
+    }
+    filename[i] = '\0';
+
+    if (strcmp(opcod, "put") == 0)
+    {
+      ecrire_fichier_wrq(filename, server_addr);
+    }
+    else if (strcmp(opcod, "get") == 0)
+    {
+      lire_fichier_rrq(filename, server_addr);
+    }
+    else
+    {
+      printf("?Invalid command\n");
+      continue;
+    }
   }
   return 0;
 }
