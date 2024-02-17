@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 #include <errno.h> // Pour errno et les codes d'erreur
 #include <sys/time.h>
-
 #define RRQ 1
 #define WRQ 2
 #define MAX_PACKET_SIZE 516
@@ -66,15 +65,11 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   /* Reception des paquets de donnée */
 
   // Initialisation du numéro de bloc
-<<<<<<< HEAD
   unsigned short bloc_atuel = 1;
-=======
-  unsigned short bloc_atuel=1;
->>>>>>> 51630bc9e4a78515081466768cafd6806bea3dec
   unsigned char ack[4];
   ack[0] = 0;
   ack[1] = 4; // Opcode pour ACK
-  ack[2] = bloc_atuel >> 8;
+  ack[2] = 0;
   ack[3] = bloc_atuel; // Numéro de bloc
 
   while (1)
@@ -105,27 +100,23 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
     if (buffer[1] == 3) // Opcode 3 indique un paquet de données
     {
       // Recuperation du numéro de bloc
-<<<<<<< HEAD
       unsigned int blocknum = (buffer[2] << 8) | buffer[3];
-=======
-      unsigned short blocknum = buffer[2] << 8 | buffer[3];
->>>>>>> 51630bc9e4a78515081466768cafd6806bea3dec
 
-       printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
+      // printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
 
       // Verfiication du numéro de bloc
       if (blocknum != bloc_atuel)
       {
-        printf("[Client] Erreur : numéro de bloc incorrect mb:%d / %d | on redemande le bon bloque au serveur \n", bloc_atuel, blocknum);
+        printf("Erreur : numéro de bloc incorrect | on redemande le bon bloque au serveur \n");
         ack[0] = 0;
         ack[1] = 4; // Opcode pour ACK
-        ack[2] = bloc_atuel >> 8;
+        ack[2] = buffer[2];
         ack[3] = bloc_atuel; // Numéro de bloc
         sendto(sockfd, ack, 4, 0, (const struct sockaddr *)&from_addr, from_len);
-        break;
+        continue;
       }
 
-      // Incrémenter le numéro de bloc bit a bit sur 2 bytes pour le prochain paquet
+      // Incrémenter le numéro de bloc
       bloc_atuel++;
 
       // On reconstruit le fichier  à partir des paquets de données reçus
@@ -154,7 +145,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       // Si la taille des données est inférieure à 512, c'est le dernier paquet
       if (len < MAX_PACKET_SIZE)
       {
-        printf("Transmission terminée.\n");
+        printf("Transmission terminée.\n\n");
         // On ferme le fichier
         fclose(fptr);
         break;
@@ -166,7 +157,6 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       break;
     }
   }
-
   // Fermeture du socket
   close(sockfd);
 }
@@ -261,7 +251,6 @@ int main(int argc, char *argv[])
 
   // Defining variables
   struct sockaddr_in server_addr;
-<<<<<<< HEAD
   char *SERVER_IP;
   if (argc< 2)
   {
@@ -269,28 +258,18 @@ int main(int argc, char *argv[])
     exit(1);
   }
   SERVER_IP=argv[1];
-=======
-
->>>>>>> 51630bc9e4a78515081466768cafd6806bea3dec
   // Configuration de l'adresse du serveur
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(SERVER_PORT);
   server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-
-
   // Envoyé en RRQ le nom du fichier pour lire le fichier
 
   while (1)
   {
     char filename[MAX_SIZE_FILE];
     scanf("%s", filename);
-<<<<<<< HEAD
     ecrire_fichier_wrq(filename, server_addr);
-=======
-    lire_fichier_rrq(filename, server_addr);
->>>>>>> 51630bc9e4a78515081466768cafd6806bea3dec
   }
-
   return 0;
 }

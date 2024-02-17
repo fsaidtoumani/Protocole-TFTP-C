@@ -6,20 +6,22 @@
 #include <errno.h> // Pour errno et les codes d'erreur
 #include <sys/time.h>
 
+#define MAX_ACK_SIZE 4
 #define RRQ 1
 #define WRQ 2
 #define MAX_PACKET_SIZE 516
 #define MAX_SIZE_DATA 512
 #define MAX_SIZE_FILE 506
 #define SERVER_PORT 69
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "0.0.0.0"
+#define REPERTOIR_SERV "./tftpboot/"
 
-// Fonction de lecture du fichier RRQ
+// fonction pour la reponse d'ecriture
 
-void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
+void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
 {
     int sockfd;
-    char buffer[MAX_PACKET_SIZE];
+    unsigned char buffer[MAX_PACKET_SIZE];
     int len, n;
     char dir[100];
     strcpy(dir, REPERTOIR_SERV);
@@ -52,7 +54,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 1; // Code d'erreur 1 : Fichier non trouvé
-            strcpy(buffer + 4, "File not found");
+            strcpy((char*)buffer + 4, "File not found");
             sendto(sockfd, buffer, 4 + strlen("File not found") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -65,7 +67,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 2; // Code d'erreur 2 : Access violation
-            strcpy(buffer + 4, "Access violation");
+            strcpy((char*)buffer + 4, "Access violation");
             sendto(sockfd, buffer, 4 + strlen("Access violation") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -77,29 +79,33 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
         }
     }
 
-  // Definition des paramettre du time out
-  tv.tv_sec = 5;  // Timeout de 5 secondes
-  tv.tv_usec = 0; // 0 microsecondes
+    // Definition des paramettre du time out
+    tv.tv_sec = 5;  // Timeout de 5 secondes
+    tv.tv_usec = 0; // 0 microsecondes
 
-  if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
-  {
-    perror("Erreur lors de la définition du timeout");
-    exit(EXIT_FAILURE);
-  }
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
+    {
+        perror("Erreur lors de la définition du timeout");
+        exit(EXIT_FAILURE);
+    }
 
-  /* Reception des paquets de donnée */
+    /* En voie et Reception des paquets de donnée */
 
-  // Initialisation du numéro de bloc
-  unsigned short bloc_atuel=1;
-  unsigned char ack[4];
-  ack[0] = 0;
-  ack[1] = 4; // Opcode pour ACK
-  ack[2] = bloc_atuel >> 8;
-  ack[3] = bloc_atuel; // Numéro de bloc
+    // Initialisation du numéro de bloc
+    int bloc_atuel = 0;
+    char ack[MAX_ACK_SIZE];
+    ack[0] = 0;
+    ack[1] = 4; // Opcode pour ACK
+    ack[2] = 0;
+    ack[3] = bloc_atuel; // Numéro de bloc
+    bloc_atuel++;
+
+    // Envoi du premier ACK pour indiquer que le serveur est prêt à recevoir le fichier
+    sendto(sockfd, ack, MAX_ACK_SIZE, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
 
     while (1)
     {
-        char buffer_recv[MAX_ACK_SIZE];
+        unsigned char buffer_recv[MAX_ACK_SIZE];
 
         // Réception d'un paquet de donné
         len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
@@ -125,24 +131,21 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
         if (buffer[1] == 3) // Opcode 3 indique un paquet de donnée
         {
             // Recuperation du numéro de bloc
-            int blocknum = (buffer[2] << 8) | buffer[3];
+            unsigned short blocknum = (buffer[2] << 8) | buffer[3];
 
-       printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
+            // printf("Bloc %d reçu, taille des données: %d Bytes\n", blocknum, len - 4);
 
-      // Verfiication du numéro de bloc
-      if (blocknum != bloc_atuel)
-      {
-        printf("[Client] Erreur : numéro de bloc incorrect mb:%d / %d | on redemande le bon bloque au serveur \n", bloc_atuel, blocknum);
-        ack[0] = 0;
-        ack[1] = 4; // Opcode pour ACK
-        ack[2] = bloc_atuel >> 8;
-        ack[3] = bloc_atuel; // Numéro de bloc
-        sendto(sockfd, ack, 4, 0, (const struct sockaddr *)&from_addr, from_len);
-        break;
-      }
+            // Verfiication du numéro de bloc
+            if (blocknum != bloc_atuel)
+            {
+                printf("Erreur : numéro de bloc incorrect :%d | %d\n ", blocknum, bloc_atuel);
+                // On renvoie le paquet de données
+                sendto(sockfd, ack, MAX_ACK_SIZE, 0, (const struct sockaddr *)&from_addr, sizeof(from_len));
+                continue;
+            }
 
-      // Incrémenter le numéro de bloc bit a bit sur 2 bytes pour le prochain paquet
-      bloc_atuel++;
+            // Incrémenter le numéro de bloc
+            bloc_atuel++;
 
             // On reconstruit le fichier  à partir des paquets de données reçus en faisant un seek pour gere les erreurs eventuelles
             for (int i = 0; i < len - 4; i++)
@@ -157,7 +160,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
                     buffer[1] = 5; // Opcode pour ERROR
                     buffer[2] = 0;
                     buffer[3] = 3; // Code d'erreur 3 : Disque plein
-                    strcpy(buffer + 4, "Disk full");
+                    strcpy((char*)buffer + 4, "Disk full");
                     sendto(sockfd, buffer, 4 + strlen("Disk full") + 1, 0, (const struct sockaddr *)&from_addr, sizeof(from_addr));
                     return;
                 }
@@ -186,15 +189,17 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
     ack[3] = buffer[3]; // Numéro de bloc
     sendto(sockfd, ack, MAX_ACK_SIZE, 0, (const struct sockaddr *)&from_addr, sizeof(from_addr));
 
-  // Fermeture du socket
-  close(sockfd);
+    // Fermeture du socket
+    close(sockfd);
+    // Fermeture du fichier
+    fclose(fptr);
 }
 
 // Fonction pour la reponse de lecture RRQ
 void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
 {
     int sockfd;
-    char buffer[MAX_PACKET_SIZE];
+    unsigned char buffer[MAX_PACKET_SIZE];
     int len, n;
     char dir[100];
     strcpy(dir, REPERTOIR_SERV);
@@ -228,7 +233,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 1; // Code d'erreur 1 : Fichier non trouvé
-            strcpy(buffer + 4, "File not found");
+            strcpy((char*)buffer + 4, "File not found");
             sendto(sockfd, buffer, 4 + strlen("File not found") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -241,7 +246,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 2; // Code d'erreur 2 : Access violation
-            strcpy(buffer + 4, "Access violation");
+            strcpy((char*)buffer + 4, "Access violation");
             sendto(sockfd, buffer, 4 + strlen("Access violation") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -266,8 +271,8 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
     /* En voie et Reception des paquets de donnée */
 
     // Initialisation du numéro de bloc
-    int bloc_atuel = 1;
-    int longeur_data = 0;
+    unsigned short bloc_atuel = 1;
+    size_t longeur_data = 0;
 
     // Envoi du premier paquet de données
     buffer[0] = 0;
@@ -289,7 +294,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
 
     while (1)
     {
-        char buffer_recv[MAX_ACK_SIZE]; // buffer pour la reception des paquets ACK
+        unsigned char buffer_recv[MAX_ACK_SIZE]; // buffer pour la reception des paquets ACK
 
         // Réception d'un paquet de donné
         len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
@@ -315,7 +320,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
         if (buffer[1] == 4) // Opcode 4 indique un paquet ACK
         {
             // Recuperation du numéro de bloc
-            int blocknum = (buffer[2] << 8) | buffer[3];
+            unsigned short blocknum = (buffer[2] << 8) | buffer[3];
 
             // printf("Bloc %d reçu, taille des données: %d bytess\n", blocknum, len - 4);
 
@@ -367,7 +372,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
                     break;
                 }
             }
-            printf("Bloc %d va etre envoyé, taille des données: %d bytess\n", blocknum, longeur_data);
+            printf("Bloc %d va etre envoyé, taille des données: %ld bytess\n", blocknum, longeur_data);
             sendto(sockfd, buffer, longeur_data+4, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
         }
     }
@@ -380,23 +385,86 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
 int main(void)
 {
 
-  // Defining variables
-  struct sockaddr_in server_addr;
+    // Defining variables
+    struct sockaddr_in server_addr;
 
-  // Configuration de l'adresse du serveur
-  memset(&server_addr, 0, sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(SERVER_PORT);
-  server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
-
-
-  // Envoyé en RRQ le nom du fichier pour lire le fichier
-  while (1)
-  {
+    // Configuration de l'adresse du serveur
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
     char filename[MAX_SIZE_FILE];
-    scanf("%s", filename);
-    lire_fichier_rrq(filename, server_addr);
-  }
+    // On recpere la requette du client
+    int sockfd;
+    char buffer[MAX_PACKET_SIZE];
+    int len, n;
+    // Création du socket UDP
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        perror("Erreur de création du socket");
+        exit(EXIT_FAILURE);
+    }
 
-  return 0;
+    // Configuration de l'adresse du serveur
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+
+    // Liaison du socket avec l'adresse du serveur
+    if (bind(sockfd, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("Erreur de liaison du socket");
+        exit(EXIT_FAILURE);
+    }
+    while (1)
+    {
+        printf("Serveur TFTP en attente de requêtes...\n");
+        // Réception de la requête du client
+        struct sockaddr_in from_addr;
+        socklen_t from_len = sizeof(from_addr);
+        len = recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
+        if (len < 0)
+        {
+            perror("Erreur de réception de la requête");
+            exit(EXIT_FAILURE);
+        }
+
+        // Vérification de l'opcode de la requête
+        switch (buffer[1])
+        {
+        case WRQ: // Opcode 2 indique une requête d'écriture
+        {
+            // Récupération du nom du fichier
+            strcpy(filename, buffer + 2);
+            printf("Requête de lecture du fichier %s\n", filename);
+            WRQ_reponse(filename, from_addr);
+            break;
+        }
+        case RRQ: // Opcode 1 indique une requête de lecture
+        {
+            // Récupération du nom du fichier
+            strcpy(filename, buffer + 2);
+            printf("Requête de lecture du fichier %s\n", filename);
+            RRQ_reponse(filename, from_addr);
+            break;
+        }
+        default:
+        {
+            printf("Erreur : Opcode incorrect\n");
+
+            // Envoi d'un paquet d'erreur
+            buffer[0] = 0;
+            buffer[1] = 5; // Opcode pour ERROR
+            buffer[2] = 0;
+            buffer[3] = 4; // Code d'erreur 4 : Opcode incorrect
+            strcpy(buffer + 4, "Opcode incorrect");
+            sendto(sockfd, buffer, 4 + strlen("Opcode incorrect") + 1, 0, (const struct sockaddr *)&from_addr, from_len);
+            break;
+        }
+        }
+    }
+
+    return 0;
 }
