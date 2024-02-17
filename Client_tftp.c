@@ -11,14 +11,14 @@
 #define MAX_SIZE_DATA 512
 #define MAX_SIZE_FILE 506
 #define SERVER_PORT 69
-#define SERVER_IP "127.0.0.1"
+// #define SERVER_IP "127.0.0.1"
 
 // Fonction de lecture du fichier RRQ
 
 void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
 {
   int sockfd;
-  char buffer[MAX_PACKET_SIZE];
+  unsigned char buffer[MAX_PACKET_SIZE];
   int len, n;
   struct timeval tv;
   FILE *fptr;
@@ -44,9 +44,9 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   /* Version plus performant*/
   buffer[0] = 0;
   buffer[1] = RRQ;
-  strcpy(buffer + 2, filename);
+  strcpy((char*)buffer + 2, filename);
   buffer[2 + size_filename] = 0;
-  strcpy(buffer + 3 + size_filename, "octet");
+  strcpy((char*)buffer + 3 + size_filename, "octet");
   buffer[3 + size_filename + 5] = 0;
 
   // Envoi du RRQ au serveur
@@ -65,8 +65,8 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   /* Reception des paquets de donnée */
 
   // Initialisation du numéro de bloc
-  int bloc_atuel = 1;
-  char ack[4];
+  unsigned short bloc_atuel = 1;
+  unsigned char ack[4];
   ack[0] = 0;
   ack[1] = 4; // Opcode pour ACK
   ack[2] = 0;
@@ -76,7 +76,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   {
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
-    char buffer_recv[MAX_PACKET_SIZE];
+    unsigned char buffer_recv[MAX_PACKET_SIZE];
     // Réception d'un paquet
     len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
     if (len < 0)
@@ -100,7 +100,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
     if (buffer[1] == 3) // Opcode 3 indique un paquet de données
     {
       // Recuperation du numéro de bloc
-      int blocknum = (buffer[2] << 8) | buffer[3];
+      unsigned int blocknum = (buffer[2] << 8) | buffer[3];
 
       // printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
 
@@ -162,8 +162,11 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
 }
 void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   int sockfd;
-  char buffer[MAX_PACKET_SIZE];
-  int n,block_actuel=1;
+  unsigned char buffer[MAX_PACKET_SIZE];
+  unsigned char data[MAX_PACKET_SIZE];
+  int n;
+  unsigned short block_actuel=1;
+  int flag=0;
 
   struct timeval tv;
   FILE *fptr;
@@ -184,9 +187,9 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   }
   buffer[0] = 0;
   buffer[1] = WRQ;
-  strcpy(buffer + 2, filename);
+  strcpy((char*)buffer + 2, filename);
   buffer[2 + size_filename] = 0;
-  strcpy(buffer + 3 + size_filename, "octet");
+  strcpy((char*)buffer + 3 + size_filename, "octet");
   buffer[3 + size_filename + 5] = 0;
 
   // Envoi du WRQ au serveur
@@ -199,11 +202,9 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
     perror("Erreur lors de la définition du timeout");
     exit(EXIT_FAILURE);
   }
-  char data[516];
 
   fptr = fopen(filename,"rb");
   memset(buffer, 0, MAX_PACKET_SIZE);
-  int flag=0;
   while (1)
   {
     struct sockaddr_in from_addr;
@@ -245,23 +246,29 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr){
   }
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
 
   // Defining variables
   struct sockaddr_in server_addr;
-  char op[3];
+  char *SERVER_IP;
+  if (argc< 2)
+  {
+    printf("Usage: %s <IP address>\n", argv[0]);
+    exit(1);
+  }
+  SERVER_IP=argv[1];
   // Configuration de l'adresse du serveur
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(SERVER_PORT);
   server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
   // Envoyé en RRQ le nom du fichier pour lire le fichier
+
   while (1)
   {
     char filename[MAX_SIZE_FILE];
     scanf("%s", filename);
-    // lire_fichier_rrq(filename, server_addr);
     ecrire_fichier_wrq(filename, server_addr);
   }
   return 0;

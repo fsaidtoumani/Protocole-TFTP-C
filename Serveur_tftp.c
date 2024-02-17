@@ -21,7 +21,7 @@
 void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
 {
     int sockfd;
-    char buffer[MAX_PACKET_SIZE];
+    unsigned char buffer[MAX_PACKET_SIZE];
     int len, n;
     char dir[100];
     strcpy(dir, REPERTOIR_SERV);
@@ -54,7 +54,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 1; // Code d'erreur 1 : Fichier non trouvé
-            strcpy(buffer + 4, "File not found");
+            strcpy((char*)buffer + 4, "File not found");
             sendto(sockfd, buffer, 4 + strlen("File not found") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -67,7 +67,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 2; // Code d'erreur 2 : Access violation
-            strcpy(buffer + 4, "Access violation");
+            strcpy((char*)buffer + 4, "Access violation");
             sendto(sockfd, buffer, 4 + strlen("Access violation") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -105,7 +105,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
 
     while (1)
     {
-        char buffer_recv[MAX_ACK_SIZE];
+        unsigned char buffer_recv[MAX_ACK_SIZE];
 
         // Réception d'un paquet de donné
         len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
@@ -131,7 +131,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
         if (buffer[1] == 3) // Opcode 3 indique un paquet de donnée
         {
             // Recuperation du numéro de bloc
-            int blocknum = (buffer[2] << 8) | buffer[3];
+            unsigned short blocknum = (buffer[2] << 8) | buffer[3];
 
             // printf("Bloc %d reçu, taille des données: %d Bytes\n", blocknum, len - 4);
 
@@ -160,7 +160,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
                     buffer[1] = 5; // Opcode pour ERROR
                     buffer[2] = 0;
                     buffer[3] = 3; // Code d'erreur 3 : Disque plein
-                    strcpy(buffer + 4, "Disk full");
+                    strcpy((char*)buffer + 4, "Disk full");
                     sendto(sockfd, buffer, 4 + strlen("Disk full") + 1, 0, (const struct sockaddr *)&from_addr, sizeof(from_addr));
                     return;
                 }
@@ -199,7 +199,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
 void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
 {
     int sockfd;
-    char buffer[MAX_PACKET_SIZE];
+    unsigned char buffer[MAX_PACKET_SIZE];
     int len, n;
     char dir[100];
     strcpy(dir, REPERTOIR_SERV);
@@ -233,7 +233,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 1; // Code d'erreur 1 : Fichier non trouvé
-            strcpy(buffer + 4, "File not found");
+            strcpy((char*)buffer + 4, "File not found");
             sendto(sockfd, buffer, 4 + strlen("File not found") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -246,7 +246,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
             buffer[1] = 5; // Opcode pour ERROR
             buffer[2] = 0;
             buffer[3] = 2; // Code d'erreur 2 : Access violation
-            strcpy(buffer + 4, "Access violation");
+            strcpy((char*)buffer + 4, "Access violation");
             sendto(sockfd, buffer, 4 + strlen("Access violation") + 1, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
             return;
         }
@@ -271,8 +271,8 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
     /* En voie et Reception des paquets de donnée */
 
     // Initialisation du numéro de bloc
-    int bloc_atuel = 1;
-    int longeur_data = 0;
+    unsigned short bloc_atuel = 1;
+    size_t longeur_data = 0;
 
     // Envoi du premier paquet de données
     buffer[0] = 0;
@@ -294,7 +294,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
 
     while (1)
     {
-        char buffer_recv[MAX_ACK_SIZE]; // buffer pour la reception des paquets ACK
+        unsigned char buffer_recv[MAX_ACK_SIZE]; // buffer pour la reception des paquets ACK
 
         // Réception d'un paquet de donné
         len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
@@ -320,7 +320,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
         if (buffer[1] == 4) // Opcode 4 indique un paquet ACK
         {
             // Recuperation du numéro de bloc
-            int blocknum = (buffer[2] << 8) | buffer[3];
+            unsigned short blocknum = (buffer[2] << 8) | buffer[3];
 
             // printf("Bloc %d reçu, taille des données: %d bytess\n", blocknum, len - 4);
 
@@ -372,7 +372,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
                     break;
                 }
             }
-            printf("Bloc %d va etre envoyé, taille des données: %d bytess\n", blocknum, longeur_data);
+            printf("Bloc %d va etre envoyé, taille des données: %ld bytess\n", blocknum, longeur_data);
             sendto(sockfd, buffer, longeur_data+4, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
         }
     }
