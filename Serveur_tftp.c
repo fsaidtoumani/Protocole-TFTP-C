@@ -356,7 +356,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr)
             // On initialise le buffer pour le prochain paquet de données
             buffer[0] = 0;
             buffer[1] = 3;
-            buffer[2] = 0;
+            buffer[2] = bloc_atuel >>8;
             buffer[3] = bloc_atuel;
             longeur_data = 0;
 
