@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <errno.h> // Pour errno et les codes d'erreur
 #include <sys/time.h>
+
 #define RRQ 1
 #define WRQ 2
 #define MAX_PACKET_SIZE 516
@@ -18,7 +19,7 @@
 void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
 {
   int sockfd;
-  char buffer[MAX_PACKET_SIZE];
+  unsigned char buffer[MAX_PACKET_SIZE];
   int len, n;
   struct timeval tv;
   FILE *fptr;
@@ -65,18 +66,18 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   /* Reception des paquets de donnée */
 
   // Initialisation du numéro de bloc
-  int bloc_atuel = 1;
-  char ack[4];
+  unsigned short bloc_atuel=1;
+  unsigned char ack[4];
   ack[0] = 0;
   ack[1] = 4; // Opcode pour ACK
-  ack[2] = 0;
+  ack[2] = bloc_atuel >> 8;
   ack[3] = bloc_atuel; // Numéro de bloc
 
   while (1)
   {
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
-    char buffer_recv[MAX_PACKET_SIZE];
+    unsigned char buffer_recv[MAX_PACKET_SIZE];
     // Réception d'un paquet
     len = recvfrom(sockfd, buffer_recv, MAX_PACKET_SIZE, 0, (struct sockaddr *)&from_addr, &from_len);
     if (len < 0)
@@ -100,23 +101,23 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
     if (buffer[1] == 3) // Opcode 3 indique un paquet de données
     {
       // Recuperation du numéro de bloc
-      int blocknum = (buffer[2] << 8) | buffer[3];
+      unsigned short blocknum = buffer[2] << 8 | buffer[3];
 
-      // printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
+       printf("Bloc %d reçu, taille des données: %d octets\n", blocknum, len - 4);
 
       // Verfiication du numéro de bloc
       if (blocknum != bloc_atuel)
       {
-        printf("Erreur : numéro de bloc incorrect | on redemande le bon bloque au serveur \n");
+        printf("[Client] Erreur : numéro de bloc incorrect mb:%d / %d | on redemande le bon bloque au serveur \n", bloc_atuel, blocknum);
         ack[0] = 0;
         ack[1] = 4; // Opcode pour ACK
-        ack[2] = buffer[2];
+        ack[2] = bloc_atuel >> 8;
         ack[3] = bloc_atuel; // Numéro de bloc
         sendto(sockfd, ack, 4, 0, (const struct sockaddr *)&from_addr, from_len);
-        continue;
+        break;
       }
 
-      // Incrémenter le numéro de bloc
+      // Incrémenter le numéro de bloc bit a bit sur 2 bytes pour le prochain paquet
       bloc_atuel++;
 
       // On reconstruit le fichier  à partir des paquets de données reçus
@@ -145,7 +146,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       // Si la taille des données est inférieure à 512, c'est le dernier paquet
       if (len < MAX_PACKET_SIZE)
       {
-        printf("Transmission terminée.\n\n");
+        printf("Transmission terminée.\n");
         // On ferme le fichier
         fclose(fptr);
         break;
@@ -157,6 +158,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
       break;
     }
   }
+
   // Fermeture du socket
   close(sockfd);
 }
@@ -250,19 +252,21 @@ int main(void)
 
   // Defining variables
   struct sockaddr_in server_addr;
-  char op[3];
+
   // Configuration de l'adresse du serveur
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(SERVER_PORT);
   server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+
+
   // Envoyé en RRQ le nom du fichier pour lire le fichier
   while (1)
   {
     char filename[MAX_SIZE_FILE];
     scanf("%s", filename);
-    // lire_fichier_rrq(filename, server_addr);
-    ecrire_fichier_wrq(filename, server_addr);
+    lire_fichier_rrq(filename, server_addr);
   }
+
   return 0;
 }
