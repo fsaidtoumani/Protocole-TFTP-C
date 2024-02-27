@@ -53,7 +53,7 @@ void lire_fichier_rrq(const char *filename, struct sockaddr_in server_addr)
   sendto(sockfd, buffer, MAX_PACKET_SIZE, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
 
   // Definition des paramettre du time out
-  tv.tv_sec = 5;  // Timeout de 5 secondes
+  tv.tv_sec = 10;  // Timeout de 5 secondes
   tv.tv_usec = 0; // 0 microsecondes
 
   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
@@ -196,7 +196,7 @@ void ecrire_fichier_wrq(const char *filename, struct sockaddr_in server_addr)
   // Envoi du WRQ au serveur
   n = sendto(sockfd, buffer, offset, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
   //printf("Envoi du WRQ au serveur : %d octets\n", n);
-  tv.tv_sec = 5;  // Timeout de 5 secondes
+  tv.tv_sec = 10;  // Timeout de 5 secondes
   tv.tv_usec = 0; // 0 microsecondes
   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv) < 0)
   {
@@ -305,6 +305,7 @@ int main(int argc, char *argv[])
 
     if (strcmp(opcod, "put") == 0)
     {
+      printf("filename : %s\n", filename);
       ecrire_fichier_wrq(filename, server_addr);
     }
     else if (strcmp(opcod, "get") == 0)
