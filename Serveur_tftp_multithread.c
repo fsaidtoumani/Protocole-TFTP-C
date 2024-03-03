@@ -33,6 +33,10 @@ typedef struct
     char filename[MAX_SIZE_FILE];
     pthread_mutex_t read_mutex;
     pthread_mutex_t write_mutex;
+    pthread_cond_t cond_w;
+    pthread_cond_t cond_r;
+    int nb_lecteur;
+    int nb_ecrivain;
 } File_mutex;
 
 typedef struct
@@ -46,7 +50,7 @@ typedef struct
 File_mutex shared_files_list[MAX_SHARED_FILE];
 
 // fonction pour la reponse d'ecriture
-void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
+void WRQ_reponse(char *filename, struct sockaddr_in server_addr, File_mutex *shared_file, int num_thread)
 {
     int sockfd;
     unsigned char buffer[MAX_PACKET_SIZE];
@@ -68,7 +72,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
     }
 
     // On essaie d'ouvrir le fichier en mode binaire
-    fptr = fopen(dir, "wb");
+    fptr = fopen(dir, "rb");
     printf("Ouverture du fichier %s\n", dir);
     if (fptr == NULL)
     {
@@ -106,6 +110,7 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
             return;
         }
     }
+    fclose(fptr);
 
     // Definition des paramettre du time out
     tv.tv_sec = 5;  // Timeout de 5 secondes
@@ -131,6 +136,19 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
     // Envoi du premier ACK pour indiquer que le serveur est prêt à recevoir le fichier
     sendto(sockfd, ack, MAX_ACK_SIZE, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
 
+    pthread_mutex_lock(&shared_file->write_mutex);
+
+    while (shared_file->nb_lecteur > 0 || shared_file->nb_ecrivain > 0)
+    {
+        if (shared_file->nb_lecteur > 0 || shared_file->nb_ecrivain > 0)
+            printf("[T:%d] Je me met en attente de avant decrire\n", num_thread);
+        pthread_cond_wait(&shared_file->cond_w, &shared_file->write_mutex);
+    }
+    shared_file->nb_ecrivain++;
+    pthread_mutex_lock(&shared_file->read_mutex);
+    printf("[T:%d] Je suis reveillééééééééééééééééééé \n", num_thread);
+    // On ouvre reelement
+    fptr = fopen(dir, "wb");
     while (1)
     {
         unsigned char buffer_recv[MAX_ACK_SIZE];
@@ -223,6 +241,38 @@ void WRQ_reponse(char *filename, struct sockaddr_in server_addr)
     fclose(fptr);
 }
 
+void write_file_thread(thread_params *args)
+{
+    File_mutex *shared_file = NULL;
+    int i;
+    // On recuper la structure de mutex du fichier
+    for (i = 0; i < MAX_SHARED_FILE && shared_files_list[i].filename != NULL; i++)
+    {
+        printf("[T:%d] i=%d \n", args->numero_thread, i);
+        if (strcmp(shared_files_list[i].filename, args->filename) == 0)
+        {
+            shared_file = &shared_files_list[i];
+            break;
+        }
+    }
+    if (shared_file == NULL)
+    {
+        printf("[T:%d]Fichier %s non trouvé\n", args->numero_thread, args->filename);
+    }
+    else
+        printf("[T:%d]Fichier %s trouvé\n", args->numero_thread, shared_file->filename);
+
+    WRQ_reponse(args->filename, args->addr, shared_file, args->numero_thread);
+
+    shared_file->nb_ecrivain--;
+    pthread_mutex_unlock(&shared_file->write_mutex);
+    pthread_mutex_unlock(&shared_file->read_mutex);
+    pthread_cond_broadcast(&shared_file->cond_r);
+    pthread_cond_broadcast(&shared_file->cond_w);
+
+    pthread_exit(NULL);
+}
+
 // Fonction pour la reponse de lecture RRQ
 void RRQ_reponse(char *filename, struct sockaddr_in server_addr, File_mutex *shared_file, int num_thread)
 {
@@ -306,8 +356,22 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr, File_mutex *sha
     buffer[0] = 0;
     buffer[1] = 3;
     buffer[2] = 0;
+
+    while (shared_file->nb_ecrivain > 0)
+    {
+        if (shared_file->nb_ecrivain > 0)
+        {
+            printf("[T:%d] Je me met en attente de lecture\n", num_thread);
+            buffer[3] = 0;
+            sendto(sockfd, buffer, longeur_data + 4, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
+        }
+        pthread_cond_wait(&shared_file->cond_r, &shared_file->read_mutex);
+    }
+
+    shared_file->nb_lecteur++;
+    printf("[T:%d] Je suis reveille lecteur \n", num_thread);
+
     buffer[3] = bloc_atuel;
-    pthread_mutex_lock(&shared_file->read_mutex);
     for (int i = 0; i < MAX_SIZE_DATA; i++)
     {
         buffer[i + 4] = fgetc(fptr);
@@ -322,7 +386,7 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr, File_mutex *sha
     pthread_mutex_unlock(&shared_file->read_mutex);
 
     sendto(sockfd, buffer, longeur_data + 4, 0, (const struct sockaddr *)&server_addr, sizeof(server_addr));
-
+    printf("lecteur soon while\n\n");
     while (1)
     {
         unsigned char buffer_recv[MAX_ACK_SIZE]; // buffer pour la reception des paquets ACK
@@ -416,15 +480,15 @@ void RRQ_reponse(char *filename, struct sockaddr_in server_addr, File_mutex *sha
     printf("[T:%d]Fermeture du fichier %s\n", num_thread, dir);
 }
 
-void *read_file_thread(thread_params *arg)
+void *read_file_thread(thread_params *args)
 {
     File_mutex *shared_file = NULL;
     int i;
     // On recuper la structure de mutex du fichier
     for (i = 0; i < MAX_SHARED_FILE && shared_files_list[i].filename != NULL; i++)
     {
-        printf("[T:%d] i=%d \n", arg->numero_thread, i);
-        if (strcmp(shared_files_list[i].filename, arg->filename) == 0)
+        printf("[T:%d] i=%d \n", args->numero_thread, i);
+        if (strcmp(shared_files_list[i].filename, args->filename) == 0)
         {
             shared_file = &shared_files_list[i];
             break;
@@ -432,13 +496,18 @@ void *read_file_thread(thread_params *arg)
     }
     if (shared_file == NULL)
     {
-        printf("[T:%d]Fichier %s non trouvé\n", arg->numero_thread, arg->filename);
+        printf("[T:%d]Fichier %s non trouvé\n", args->numero_thread, args->filename);
     }
     else
-        printf("[T:%d]Fichier %s trouvé\n", arg->numero_thread, shared_file->filename);
-    // pthread_mutex_lock(&shared_file->mutex_lecture);
-    RRQ_reponse(arg->filename, arg->addr, shared_file, arg->numero_thread);
-    // pthread_mutex_unlock(&shared_file->mutex_lecture);
+        printf("[T:%d]Fichier %s trouvé\n", args->numero_thread, shared_file->filename);
+
+    RRQ_reponse(args->filename, args->addr, shared_file, args->numero_thread);
+
+    shared_file->nb_lecteur--;
+
+    if (shared_file->nb_lecteur == 0)
+        pthread_cond_broadcast(&shared_file->cond_w);
+
     pthread_exit(NULL);
 }
 
@@ -495,6 +564,10 @@ int main(void)
                     strcpy(shared_files_list[i].filename, entry->d_name);
                     pthread_mutex_init(&shared_files_list[i].read_mutex, NULL);
                     pthread_mutex_init(&shared_files_list[i].write_mutex, NULL);
+                    pthread_cond_init(&shared_files_list[i].cond_w, NULL);
+                    pthread_cond_init(&shared_files_list[i].cond_r, NULL);
+                    shared_files_list[i].nb_lecteur = 0;
+                    shared_files_list[i].nb_ecrivain = 0;
                     i++;
                 }
             }
@@ -534,8 +607,16 @@ int main(void)
         {
             // Récupération du nom du fichier
             strcpy(filename, buffer + 2);
-            printf("Requête de lecture du fichier %s\n", filename);
-            WRQ_reponse(filename, from_addr);
+            printf("Requête d'ecriture du fichier %s\n", filename);
+            // Creation du thread pour la reponse
+            pthread_t thread;
+            thread_params *params = malloc(sizeof(thread_params));
+            strcpy(params->filename, filename);
+            params->addr = from_addr;
+            params->opcode = buffer[1];
+            params->numero_thread = num_thread;
+            num_thread++;
+            pthread_create(&thread, NULL, (void *)write_file_thread, params);
             break;
         }
         case RRQ: // Opcode 1 indique une requête de lecture
